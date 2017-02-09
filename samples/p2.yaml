@@ -1,0 +1,17 @@
+--- 
+version: v1-alpha
+type: default
+enterprise: nuage
+domain: openshift
+id: "k8s allow web traffic"
+name: "k8s allow web traffic"
+priority: 300
+policy-elements: 
+    - name: "Access control"
+      from: 
+        name: default 
+        type: zone 
+      to: 
+        name: kube-system-0 
+        type: subnet 
+      action: ALLOW 

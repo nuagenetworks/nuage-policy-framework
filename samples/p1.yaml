@@ -1,0 +1,25 @@
+--- 
+version: v1-alpha
+type: default
+enterprise: nuage
+domain: openshift
+id: "k8s allow web traffic"
+name: "k8s allow web traffic"
+priority: 10
+policy-elements: 
+    - name: "Access control"
+      from: 
+        name: ClientPG1 
+        type: policy-group
+      to: 
+        name: ServerPG
+        type: policy-group
+      action: ALLOW
+      network-parameters:
+        protocol: 6
+        destination-port-range: 
+          start-port: 80
+          end-port: 80
+        source-port-range:
+          start-port: 1000 
+          end-port: 2000

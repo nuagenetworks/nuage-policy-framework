@@ -1,0 +1,19 @@
+--- 
+version: v1-alpha
+type: default
+enterprise: nuage
+domain: openshift
+id: "Block intra zone traffic"
+name: "Block intra zone traffic"
+priority: 1000
+policy-elements: 
+    - name: "Block intra zone traffic"
+      from:
+        name: default 
+        type: zone 
+      to:
+        name: default
+        type: endpoint-zone
+      action: DENY 
+      network-parameters:
+        protocol: 6 
