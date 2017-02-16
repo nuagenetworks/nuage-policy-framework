@@ -179,7 +179,7 @@ func TestPG2PGPolicyAddRemove(t *testing.T) {
 	}
 }
 
-const testZone2ZoneEndpointYaml = `
+const testZone2ZoneYaml = `
 --- 
 version: v1-alpha
 type: default
@@ -195,18 +195,18 @@ policy-elements:
         type: zone 
       to:
         name: default
-        type: endpoint-zone
+        type: zone
       action: DENY 
       network-parameters:
         protocol: 6 
 `
 
-func TestZone2EndpointZonePolicy(t *testing.T) {
+func TestZone2ZonePolicy(t *testing.T) {
 	InitSession()
 
-	nuagePolicy, err := policies.LoadPolicyFromYAML(testZone2ZoneEndpointYaml)
+	nuagePolicy, err := policies.LoadPolicyFromYAML(testZone2ZoneYaml)
 	if err != nil {
-		t.Fatalf("Unable to unmarshal policy %s , err %+v", testZone2ZoneEndpointYaml, err)
+		t.Fatalf("Unable to unmarshal policy %s , err %+v", testZone2ZoneYaml, err)
 	}
 
 	err = policyImplementer.ImplementPolicy(nuagePolicy)
@@ -481,7 +481,7 @@ func TestZoneAnnotationUpdateAdd(t *testing.T) {
 	defaultPolicyElement1 := policies.DefaultPolicyElement{
 		Name:   fmt.Sprintf("Namespace annotation for %s", AnnoZone1),
 		From:   policies.EndPoint{Name: AnnoZone1, Type: policies.Zone},
-		To:     policies.EndPoint{Name: AnnoZone1, Type: policies.EndPointZone},
+		To:     policies.EndPoint{Name: AnnoZone1, Type: policies.Zone},
 		Action: policies.Allow,
 		NetworkParameters: policies.NetworkParameters{
 			Protocol:             policies.TCP,
@@ -496,9 +496,9 @@ func TestZoneAnnotationUpdateAdd(t *testing.T) {
 	}
 
 	defaultPolicyElement2 := policies.DefaultPolicyElement{
-		Name:   fmt.Sprintf("Namespace annotation for %s", AnnoZone1),
+		Name:   fmt.Sprintf("Namespace annotation for %s", AnnoZone2),
 		From:   policies.EndPoint{Name: AnnoZone2, Type: policies.Zone},
-		To:     policies.EndPoint{Name: AnnoZone2, Type: policies.EndPointZone},
+		To:     policies.EndPoint{Name: AnnoZone2, Type: policies.Zone},
 		Action: policies.Allow,
 		NetworkParameters: policies.NetworkParameters{
 			Protocol:             policies.TCP,
