@@ -1,0 +1,32 @@
+kind: NuageACLPolicy
+version: v4_0
+name: My Policy Nr 2
+policy-type: Ingress
+enterprise: K8S-Enterprise-5
+domain: K8S-Domain-5
+priority: 999999
+policy-elements:
+- name: Drop some traffic
+  priority: 888888
+  from:
+    source-type: Subnet
+    name: kube-system-0
+  to:
+    destination-type: Zone
+    name: default
+  traffic-spec:
+    protocol: TCP
+    source-port-range: 88-8888
+    destination-port-range: 22
+  action: Deny
+- name: Drop all traffic
+  priority: 999999
+  from:
+    source-type: Any
+    name: Bogus name
+  to:
+    destination-type: Any
+  traffic-spec:
+    protocol: Any
+    source-port-range: 
+  action: Deny
