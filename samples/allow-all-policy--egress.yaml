@@ -1,13 +1,13 @@
-kind: NuageNetworkPolicy
+kind: NuageACLPolicy
 version: v4_0
-name: My Policy Nr1 
-policy-type: Ingress
-enterprise: K8S-Enterprise-5
-domain: K8S-Domain-5
-priority: 10000
+name: Allow all Egress Policy nr1
+policy-type: Egress
+enterprise: K8S-Enterprise-5bis
+domain: K8S-Domain-5bis
+priority: 1000000000
 policy-elements:
 - name: Allow all traffic -- Any to Any
-  priority: 1000000
+  priority: 1000000000
   from:
     source-type: Any
   to:

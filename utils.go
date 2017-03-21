@@ -5,7 +5,7 @@ import (
 	"strings"
 	// log "github.com/Sirupsen/logrus"
 
-	"github.com/FlorianOtel/go-bambou/bambou"
+	"github.com/nuagenetworks/go-bambou/bambou"
 )
 
 ////////
@@ -98,8 +98,8 @@ func scrubPE(pe *PolicyElement) error {
 
 	switch pe.Parent.Type {
 	case Ingress:
-		//////// Valid PE To / From Scopes: For PolicySrcScope.Type is LScope / PolicySrcScope.Type is NScope
 		////////
+		//////// Valid PE From / To Scopes for PolicySrcScope.Type: LScope (for "From") respectively NScope (for "To")
 		////////
 
 		//// Scrub: From
@@ -108,8 +108,15 @@ func scrubPE(pe *PolicyElement) error {
 		}
 
 		// Empty "name" allowed only for 'LAny'
-		if (pe.From.Name == nil) && (LScope(pe.From.Type) != LAny) {
-			return bambou.NewBambouError(ErrorPEInvalid+pe.Name, "'from' field: No 'name' given and 'type' is not: "+pe.From.Type)
+		if pe.From.Name == nil {
+			if LScope(pe.From.Type) != LAny {
+				return bambou.NewBambouError(ErrorPEInvalid+pe.Name, "'from' field: No 'name' given and 'type' is not: "+pe.From.Type)
+			}
+		} else {
+			// Conversely, for "LAny" we cannot have a non-nil Name
+			if LScope(pe.From.Type) == LAny {
+				return bambou.NewBambouError(ErrorPEInvalid+pe.Name, "'from' field: For 'type': "+pe.From.Type+" a name cannot be given")
+			}
 		}
 
 		//// Scrub: To
@@ -123,18 +130,35 @@ func scrubPE(pe *PolicyElement) error {
 			default:
 				return bambou.NewBambouError(ErrorPEInvalid+pe.Name, "'to' field: No 'name' given for destination type: "+pe.To.Type)
 			}
+		} else {
+			// Conversely, for those types, name _must_ be empty
+			switch NScope(pe.To.Type) {
+			case NAny, MyDomain, MyZone, MySubnet:
+				return bambou.NewBambouError(ErrorPEInvalid+pe.Name, "'to' field: For 'type': "+pe.To.Type+" a name cannot be given")
+			}
 		}
+
 	case Egress:
+		//////// Valid PE To / From Scopes for PolicySrcScope.Type: NScope (for "From") respectively LScope (for "To")
+		////////
+		////////
+
 		//// Scrub: From
 		if _, okfrom := VSDNScopes[NScope(pe.From.Type)]; !okfrom {
 			return bambou.NewBambouError(ErrorPEInvalid+pe.Name, "'from' field: Invalid source type: "+pe.From.Type)
 		}
-		// Empty "name" allowed only for a few types of Policy detination scopes
+		// Empty "name" allowed only for a few types of Policy destination scopes
 		if pe.From.Name == nil {
 			switch NScope(pe.From.Type) {
 			case NAny, MyDomain, MyZone, MySubnet:
 			default:
 				return bambou.NewBambouError(ErrorPEInvalid+pe.Name, "'from' field: No 'name' given for source type: "+pe.From.Type)
+			}
+		} else {
+			// Conversely, for those types, name _must_ be empty
+			switch NScope(pe.From.Type) {
+			case NAny, MyDomain, MyZone, MySubnet:
+				return bambou.NewBambouError(ErrorPEInvalid+pe.Name, "'from' field: For 'type': "+pe.From.Type+" a name cannot be given")
 			}
 		}
 
@@ -144,8 +168,15 @@ func scrubPE(pe *PolicyElement) error {
 		}
 
 		// Empty "name" allowed only for 'LAny'
-		if (pe.To.Name == nil) && (LScope(pe.To.Type) != LAny) {
-			return bambou.NewBambouError(ErrorPEInvalid+pe.Name, "'to' field: No 'name' given and 'type' is not: "+pe.To.Type)
+		if pe.To.Name == nil {
+			if LScope(pe.To.Type) != LAny {
+				return bambou.NewBambouError(ErrorPEInvalid+pe.Name, "'to' field: No 'name' given and 'type' is not: "+pe.To.Type)
+			}
+		} else {
+			// Conversely, for "LAny" we cannot have a non-nil Name
+			if LScope(pe.To.Type) == LAny {
+				return bambou.NewBambouError(ErrorPEInvalid+pe.Name, "'to' field: For 'type': "+pe.To.Type+" a name cannot be given")
+			}
 		}
 	}
 

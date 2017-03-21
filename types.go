@@ -1,6 +1,6 @@
 package netpolicy
 
-import "github.com/FlorianOtel/vspk-go/vspk"
+import "github.com/nuagenetworks/vspk-go/vspk"
 
 // A network policy domain corresponds to a VSPK Domain
 type PolicyDomain vspk.Domain

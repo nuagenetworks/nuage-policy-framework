@@ -7,8 +7,8 @@ import (
 
 	// log "github.com/Sirupsen/logrus"
 
-	"github.com/FlorianOtel/go-bambou/bambou"
-	"github.com/FlorianOtel/vspk-go/vspk"
+	"github.com/nuagenetworks/go-bambou/bambou"
+	"github.com/nuagenetworks/vspk-go/vspk"
 )
 
 // Wrapper around VSD jobs
@@ -207,7 +207,7 @@ func (pd *PolicyDomain) ApplyPolicy(p *Policy) error {
 		return err
 	}
 
-	// Get all existing policies of existing type.
+	// Get all existing policies of same type.
 	ps, err := pd.GetPoliciesByType(p.Type)
 
 	if err != nil {
@@ -277,47 +277,35 @@ func (pd *PolicyDomain) ApplyPolicy(p *Policy) error {
 				goto batch_error
 			}
 		}
-		//// XXX -- For the Policy to actually work we need some rules for return traffic. If no rules exist in place, create a low priority "Allow All"
-		eacls, err := vsdd.EgressACLTemplates(&bambou.FetchingInfo{Filter: "policyState == \"DRAFT\""})
-		if err != nil {
+
+	case Egress:
+		/////
+		///// Egress Policies
+		/////
+
+		eacl := new(vspk.EgressACLTemplate)
+		// Hardcoded fields
+		eacl.Active = true
+		// Mapped fields
+		eacl.Name = p.Name
+		eacl.Priority = p.Priority
+		if err := vsdd.CreateEgressACLTemplate(eacl); err != nil {
 			batcherr = err
 			goto batch_error
 		}
 
-		if len(eacls) == 0 { // There are no EgressACLTemplate defined. Create one, and an entry underneath it.
-			eacl := new(vspk.EgressACLTemplate)
-			// Hardcoded fields
-			eacl.Active = true
-			// Mapped fields
-			eacl.Name = p.Name
-			eacl.Priority = p.Priority
-			if err := vsdd.CreateEgressACLTemplate(eacl); err != nil {
-				batcherr = err
-				goto batch_error
-			}
-
-			// Create a "dummy" "Allow All" PolicyElement for reverse traffic (but don't "attach" it to the Policy)
-			rpe := new(PolicyElement)
-			*rpe = AllowAllEgressPE
-			rpe.Parent = p
-			rpe.Enterprise = p.Enterprise
-			rpe.Domain = p.Domain
-			eaclentry, err := rpe.MapToEgressACLEntry()
+		// Process Policy's PEs
+		for _, pe := range p.PolicyElements {
+			eaclentry, err := pe.MapToEgressACLEntry()
 			if err != nil {
 				batcherr = err
 				goto batch_error
 			}
-
 			if err := eacl.CreateEgressACLEntryTemplate(eaclentry); err != nil {
 				batcherr = err
 				goto batch_error
 			}
 		}
-
-	case Egress:
-		/////
-		///// Egress Policies. Insert Logic here
-		/////
 	}
 
 	//// At this point all the bacherr should be nil.  This is a bit overkill but leave it in place until code matures

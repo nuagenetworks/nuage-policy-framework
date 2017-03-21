@@ -4,8 +4,8 @@ import (
 	"errors"
 	"io/ioutil"
 
-	"github.com/FlorianOtel/go-bambou/bambou"
-	"github.com/FlorianOtel/vspk-go/vspk"
+	"github.com/nuagenetworks/go-bambou/bambou"
+	"github.com/nuagenetworks/vspk-go/vspk"
 	"github.com/golang/glog"
 
 	yaml "gopkg.in/yaml.v2"
@@ -100,6 +100,7 @@ func (p *Policy) ApplyPE(pe *PolicyElement) error {
 
 		// XXX --  Since we need to add this PE under IngressACLTemplate in "DRAFT" state, we need to find its ID.
 		// This as opposed to pe.Parent, which points to its previous, "LIVE" counterpart
+
 		draftiacls, err := vsdd.IngressACLTemplates(&bambou.FetchingInfo{Filter: "name == \"" + p.Name + "\" and policyState == \"DRAFT\""})
 		if err != nil {
 			batcherr = err
@@ -121,10 +122,35 @@ func (p *Policy) ApplyPE(pe *PolicyElement) error {
 				goto batch_error
 			}
 		}
+
 	case Egress:
 		/////
-		/////  Insert Logic for Egress policies here
+		/////  Egress policies
 		/////
+		// XXX --  Since we need to add this PE under EgressACLTemplate in "DRAFT" state, we need to find its ID.
+		// This as opposed to pe.Parent, which points to its previous, "LIVE" counterpart
+
+		drafteacls, err := vsdd.EgressACLTemplates(&bambou.FetchingInfo{Filter: "name == \"" + p.Name + "\" and policyState == \"DRAFT\""})
+		if err != nil {
+			batcherr = err
+			goto batch_error
+		}
+
+		if len(drafteacls) != 1 {
+			batcherr = errors.New("Cannot find Parent Policy Draft")
+			goto batch_error
+		} else {
+			eaclentry, err := pe.MapToEgressACLEntry()
+			if err != nil {
+				batcherr = err
+				goto batch_error
+			}
+
+			if err := drafteacls[0].CreateEgressACLEntryTemplate(eaclentry); err != nil {
+				batcherr = err
+				goto batch_error
+			}
+		}
 
 	}
 
@@ -169,6 +195,7 @@ func (p *Policy) HasPE(pe *PolicyElement) error {
 		////////
 		//////// Ingress Policies
 		////////
+
 		iacl := vspk.IngressACLTemplate{}
 		iacl.ID = pe.Parent.ID // XXX - Up to date since it was refreshed above
 		// iacl.Fetch()
@@ -184,10 +211,28 @@ func (p *Policy) HasPE(pe *PolicyElement) error {
 			return nil
 		case 0: // Not found return error (below)
 		}
+
 	case Egress:
 		////////
-		//////// Insert logic here
+		//////// Egress Policies
 		////////
+
+		eacl := vspk.EgressACLTemplate{}
+		eacl.ID = pe.Parent.ID // XXX - Up to date since it was refreshed above
+		// iacl.Fetch()
+		eaclentries, err := eacl.EgressACLEntryTemplates(&bambou.FetchingInfo{Filter: "description == \"" + pe.Name + "\" and policyState == \"LIVE\""})
+		if err != nil {
+			return bambou.NewBambouError(ErrorPENotFound+pe.Name, err.Error())
+		}
+
+		// We should get (at most) one entry in that list
+		switch len(eaclentries) {
+		case 1:
+			pe.MapFromEgressACLEntry(eaclentries[0])
+			return nil
+		case 0: // Not found return error (below)
+		}
+
 	}
 
 	return bambou.NewBambouError(ErrorPENotFound+pe.Name, "")
@@ -218,10 +263,21 @@ func (p *Policy) DeletePE(pe *PolicyElement) error {
 			p.detachPE(pe)
 			return nil
 		}
+
 	case Egress:
 		////////
 		//////// Insert logic here
 		////////
+		eaclentry := new(vspk.EgressACLEntryTemplate)
+		eaclentry.ID = pe.ID // Up-to-date since it was refreshed above
+		if err := eaclentry.Delete(); err != nil {
+			return bambou.NewBambouError(ErrorPECannotDelete+pe.Name, err.Error())
+		} else {
+			// Detach the PE from the Policy
+			p.detachPE(pe)
+			return nil
+		}
+
 	}
 
 	return bambou.NewBambouError(ErrorPECannotDelete+pe.Name, "")

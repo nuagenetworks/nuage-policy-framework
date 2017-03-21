@@ -1,6 +1,6 @@
 kind: NuageACLPolicy
 version: v4_0
-name: My Policy Nr 2
+name: My Policy nr2
 policy-type: Ingress
 enterprise: K8S-Enterprise-5
 domain: K8S-Domain-5
@@ -23,7 +23,6 @@ policy-elements:
   priority: 999999
   from:
     source-type: Any
-    name: Bogus name
   to:
     destination-type: Any
   traffic-spec:

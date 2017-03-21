@@ -1,10 +1,10 @@
 package netpolicy
 
 import (
-	"github.com/FlorianOtel/vspk-go/vspk"
 	"github.com/golang/glog"
+	"github.com/nuagenetworks/vspk-go/vspk"
 
-	"github.com/FlorianOtel/go-bambou/bambou"
+	"github.com/nuagenetworks/go-bambou/bambou"
 
 	yaml "gopkg.in/yaml.v2"
 )
@@ -263,6 +263,129 @@ func (pe *PolicyElement) MapToIngressACLEntry() (*vspk.IngressACLEntryTemplate, 
 //////// Egress parent Policy
 ////////
 
+// Mutates the receiver
+// XXX - Notes:
+// - Does _not_ populate "Parent" Policy. This needs to be done by the caller (e.g. in a context of a "Policy")
+// - Does not insure / check that Parent Policy Type is "Egress"
+// - Minimal checks to insure the argument is a valid (active, live) EgressACLEntryTemplate
+func (pe *PolicyElement) MapFromEgressACLEntry(eaclentry *vspk.EgressACLEntryTemplate) {
+	if eaclentry == nil || eaclentry.ID == "" || eaclentry.PolicyState != "LIVE" {
+		return
+	}
+
+	pe.ID = eaclentry.ID
+	pe.Enterprise = eaclentry.EnterpriseName
+	pe.Domain = eaclentry.DomainName
+
+	pe.SourceID = eaclentry.NetworkID
+	pe.TargetID = eaclentry.LocationID
+
+	pe.Name = eaclentry.Description
+	pe.Priority = eaclentry.Priority
+
+	// From
+	pe.From.Type = string(NScopes[eaclentry.NetworkType])
+	switch NScope(pe.From.Type) {
+	case NAny: // pe.From.Name left nil
+	case NSubnet:
+		// Find subnet name
+		pe.From.Name = new(string)
+		subnet := new(vspk.Subnet)
+		subnet.ID = eaclentry.NetworkID
+		subnet.Fetch()
+		*pe.From.Name = subnet.Name
+	case NZone:
+		// Find zone name
+		pe.From.Name = new(string)
+		zone := new(vspk.Zone)
+		zone.ID = eaclentry.NetworkID
+		zone.Fetch()
+		*pe.From.Name = zone.Name
+	case NPolicyGroup:
+		// Find VSD Policy Group Name
+		pe.From.Name = new(string)
+		vsdpg := new(vspk.PolicyGroup)
+		vsdpg.ID = eaclentry.NetworkID
+		vsdpg.Fetch()
+		*pe.From.Name = vsdpg.Name
+	case MyDomain, MyZone, MySubnet: // Leave pe.From.Name nil
+	case NetworkMacroGroup:
+		// Find VSD Network Macro Group Name
+		pe.From.Name = new(string)
+		vsdnmg := new(vspk.NetworkMacroGroup)
+		vsdnmg.ID = eaclentry.NetworkID
+		vsdnmg.Fetch()
+		*pe.From.Name = vsdnmg.Name
+	case NetworkMacro:
+		// Find VSD Enterprise Network (aka "Network Macro") Name
+		pe.From.Name = new(string)
+		vsden := new(vspk.EnterpriseNetwork)
+		vsden.ID = eaclentry.NetworkID
+		vsden.Fetch()
+		*pe.From.Name = vsden.Name
+	default:
+		glog.Fatalf("Don't know how to map Egress ACL NetworkType %#s into a Policy Source Type", eaclentry.NetworkType)
+
+	}
+
+	// To
+	pe.To.Type = string(LScopes[eaclentry.LocationType])
+	switch LScope(pe.To.Type) {
+	case LAny: // pe.To.Name left nil
+	case LSubnet:
+		// Find subnet name
+		pe.To.Name = new(string)
+		subnet := new(vspk.Subnet)
+		subnet.ID = eaclentry.LocationID
+		subnet.Fetch()
+		*pe.To.Name = subnet.Name
+	case LZone:
+		// Find zone name
+		pe.To.Name = new(string)
+		zone := new(vspk.Zone)
+		zone.ID = eaclentry.LocationID
+		zone.Fetch()
+		*pe.To.Name = zone.Name
+	case LPolicyGroup:
+		// Find VSD Policy Group Name
+		pe.To.Name = new(string)
+		vsdpg := new(vspk.PolicyGroup)
+		vsdpg.ID = eaclentry.LocationID
+		vsdpg.Fetch()
+		*pe.To.Name = vsdpg.Name
+	case LVPortTag:
+		// Not implemented. Raise exception.
+		glog.Fatalf("Implementing Egress ACL LocationType %#s is not yet supported", eaclentry.LocationType)
+	default:
+		glog.Fatalf("Don't know how to map Egress ACL LocationType %#s into a Policy Destination Type", eaclentry.LocationType)
+	}
+
+	// Traffic spec
+	pe.TrafficSpec.Protocol = Protocols[eaclentry.Protocol]
+	switch pe.TrafficSpec.Protocol {
+	case ProtoAny: // We don't allow port ranges to be defined. Leave the ranges as nil
+	case TCP, UDP:
+		// Default is "*" (all ports)
+		pe.TrafficSpec.SrcPortRange = new(string)
+		*pe.TrafficSpec.SrcPortRange = "*"
+		pe.TrafficSpec.DstPortRange = new(string)
+		*pe.TrafficSpec.DstPortRange = "*"
+		// Specific ports / port ranges are given, override this default
+		if eaclentry.SourcePort != "" {
+			*pe.TrafficSpec.SrcPortRange = eaclentry.SourcePort
+		}
+		if eaclentry.DestinationPort != "" {
+			*pe.TrafficSpec.DstPortRange = eaclentry.DestinationPort
+		}
+
+	default:
+		glog.Fatalf("Don't know how to map Egress ACL Protocol %#s ", eaclentry.Protocol)
+	}
+
+	// Action
+	pe.Action = Actions[eaclentry.Action]
+}
+
 // XXX - This also validates if the PE points to valid VSD constructs
 func (pe *PolicyElement) MapToEgressACLEntry() (*vspk.EgressACLEntryTemplate, error) {
 	eaclentry := new(vspk.EgressACLEntryTemplate)
@@ -281,7 +404,6 @@ func (pe *PolicyElement) MapToEgressACLEntry() (*vspk.EgressACLEntryTemplate, er
 
 	// Hardcoded fields
 	eaclentry.DSCP = "*"
-
 	eaclentry.EtherType = "0x0800"
 
 	// XXX - Notes
@@ -297,6 +419,7 @@ func (pe *PolicyElement) MapToEgressACLEntry() (*vspk.EgressACLEntryTemplate, er
 	eaclentry.DomainName = pe.Domain
 	eaclentry.Description = pe.Name
 	eaclentry.Priority = pe.Priority
+
 	// From
 	eaclentry.NetworkType = VSDNScopes[NScope(pe.From.Type)]
 	switch NScope(pe.From.Type) {
