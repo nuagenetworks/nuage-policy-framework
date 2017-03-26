@@ -44,7 +44,7 @@ func (pd *PolicyDomain) Job(cmd string) error {
 }
 
 // For a given Policy Domain (VSD domain) get all policies with a policyState of "LIVE" policies of a given type
-func (pd *PolicyDomain) GetPoliciesByType(ptype PolicyType) ([]Policy, error) {
+func (pd *PolicyDomain) GetPoliciesByType(ptype PolicyType) ([]*Policy, error) {
 
 	if pd.ID == "" { // The given Policy/VSD domain should have _at_least_ an ID
 		return nil, bambou.NewBambouError(ErrorPolicyNotFound, "Invalid Policy Domain - no valid ID")
@@ -73,7 +73,7 @@ func (pd *PolicyDomain) GetPoliciesByType(ptype PolicyType) ([]Policy, error) {
 		return nil, err
 	}
 
-	var ps []Policy // Resulting slice of "Policy"
+	var ps []*Policy // Resulting slice of "*Policy"
 
 	switch ptype {
 	case Ingress:
@@ -102,15 +102,41 @@ func (pd *PolicyDomain) GetPoliciesByType(ptype PolicyType) ([]Policy, error) {
 				pe := new(PolicyElement)
 				pe.MapFromIngressACLEntry(iaclentry)
 				// Add this PE to Policy's list of Policy Elements
-				p.attachPE(pe)
+				p.AttachPE(pe)
 			}
 			ps = append(ps, p)
 		}
 
 	case Egress:
-		////
-		//// Logic: Process Egress ACL Templates + Egress ACL Entry Templates
-		////
+		eacls, err := vsdd.EgressACLTemplates(&bambou.FetchingInfo{Filter: "policyState == \"LIVE\""})
+		if err != nil {
+			return nil, err
+		}
+		for _, eacl := range eacls {
+
+			p, _ := NewPolicy(eacl.Name, Egress, vsdorg.Name, vsdd.Name, eacl.Priority)
+			// Add the VSD provided fields -- i.e. attach the Policy to this PolicyDomain
+			p.ID = eacl.ID
+			p.Parent = pd
+
+			//// Get the underlying (children) ACL Entries
+
+			// Two alternatives:
+			// 1) Get All Egress ACL Entry for the domain, then filter to those that have this ACL template as parent
+			// 2) Get all Egress ACL Entry Templates have this ACL Template as parent
+			// The two _should_ be the same. While 1) is more conservative (and logical), we use 2)  since it's faster
+			eaclentries, err := eacl.EgressACLEntryTemplates(&bambou.FetchingInfo{})
+			if err != nil {
+				return nil, err
+			}
+			for _, eaclentry := range eaclentries {
+				pe := new(PolicyElement)
+				pe.MapFromEgressACLEntry(eaclentry)
+				// Add this PE to Policy's list of Policy Elements
+				p.AttachPE(pe)
+			}
+			ps = append(ps, p)
+		}
 	}
 
 	return ps, nil
@@ -118,11 +144,10 @@ func (pd *PolicyDomain) GetPoliciesByType(ptype PolicyType) ([]Policy, error) {
 
 // For a given Policy Domain (VSD domain) get Policies with a given name.
 // XXX -- limit to policyState of "LIVE"
-// XXX - Names must be unique only for a given type, hence we may get multiple matches (at most one for each Policy type)
-func (pd *PolicyDomain) GetPoliciesByName(pname string) ([]Policy, error) {
+func (pd *PolicyDomain) GetPolicies() ([]*Policy, error) {
 
 	if pd.ID == "" { // The given Policy/VSD domain should have _at_least_ an ID
-		return nil, bambou.NewBambouError(ErrorPolicyNotFound+pname, "Invalid Policy Domain - lacks valid ID")
+		return nil, bambou.NewBambouError(ErrorPolicyNotFound, "Invalid Policy Domain - lacks valid ID")
 	}
 
 	// Assumption:  Domains are quite static / IDs do not change much. So if we have valid policy ID we can simply cast back a PolicyDomain to (valid) VSD Domain
@@ -149,7 +174,7 @@ func (pd *PolicyDomain) GetPoliciesByName(pname string) ([]Policy, error) {
 		return nil, err
 	}
 
-	var ps []Policy
+	var ps []*Policy
 
 	for ptype, _ := range VSDPolicyTypes {
 		switch ptype {
@@ -158,8 +183,8 @@ func (pd *PolicyDomain) GetPoliciesByName(pname string) ([]Policy, error) {
 			///// Ingress Policies
 			/////
 
-			// Filter by name and limit to "LIVE" ones
-			iacls, _ := vsdd.IngressACLTemplates(&bambou.FetchingInfo{Filter: "name == \"" + pname + "\" and policyState == \"LIVE\""})
+			// Limit to "LIVE" ones
+			iacls, _ := vsdd.IngressACLTemplates(&bambou.FetchingInfo{Filter: "policyState == \"LIVE\""})
 
 			for _, iacl := range iacls { // This list should contain _at_most_ one element
 				p, _ := NewPolicy(iacl.Name, Ingress, vsdorg.Name, vsdd.Name, iacl.Priority)
@@ -179,24 +204,48 @@ func (pd *PolicyDomain) GetPoliciesByName(pname string) ([]Policy, error) {
 					pe := new(PolicyElement)
 					pe.MapFromIngressACLEntry(iaclentry)
 					// Add this to Policy's list of Policy Elements
-					p.attachPE(pe)
+					p.AttachPE(pe)
 				}
 				// Found one matching policy. Add it to the list
 				ps = append(ps, p)
 			}
 
 		case Egress:
-			////
-			//// Logic for Egress Policies:  Process Egress ACL Templates + Egress ACL Entry Templates
-			////
+			/////
+			///// Egress Policies
+			/////
+
+			// Limit to "LIVE" ones
+			eacls, _ := vsdd.EgressACLTemplates(&bambou.FetchingInfo{Filter: "policyState == \"LIVE\""})
+
+			for _, eacl := range eacls { // This list should contain _at_most_ one element
+				p, _ := NewPolicy(eacl.Name, Egress, vsdorg.Name, vsdd.Name, eacl.Priority)
+
+				// Attach Policy to Policy Domain, incl. (latest) ID for the Policy
+				p.ID = eacl.ID
+				p.Parent = pd
+
+				//// Get the underlying ACL Entries
+				// Two alternatives:
+				// 1) Get All Ingress ACL Entry for the domain, then filter to those that have this ACL template as parent
+				// 2) Get all Ingress ACL Entry Templates have this ACL Template as parent
+				// The two _should_ be the same. While 1) is more conservative (and logical), we use 2)  since it's faster
+				eaclentries, _ := eacl.EgressACLEntryTemplates(&bambou.FetchingInfo{})
+
+				for _, eaclentry := range eaclentries {
+					pe := new(PolicyElement)
+					pe.MapFromEgressACLEntry(eaclentry)
+					// Add this to Policy's list of Policy Elements
+					p.AttachPE(pe)
+				}
+				// Found one matching policy. Add it to the list
+				ps = append(ps, p)
+			}
+
 		}
 	}
 
-	if len(ps) == 0 {
-		return nil, bambou.NewBambouError(ErrorPolicyNotFound+pname, "")
-	} else {
-		return ps, nil
-	}
+	return ps, nil
 }
 
 // Apply a Policy and any PEs it may contain
@@ -336,29 +385,20 @@ func (pd *PolicyDomain) HasPolicy(p *Policy) error {
 	if err := scrubPolicy(p); err != nil {
 		return err
 	}
-	// Get "LIVE" policies with same name, if any
-	pl, err := pd.GetPoliciesByName(p.Name)
-
-	if err != nil {
+	// Get all "LIVE" policies of same type
+	if pl, err := pd.GetPoliciesByType(p.Type); err != nil {
 		return bambou.NewBambouError(ErrorPolicyNotFound+p.Name, err.Error())
-	}
-
-	found := false
-	for _, livep := range pl { // Short list -- At most one policy with same Name per Type
-		if livep.Type == p.Type { // Check if Policy Types match as well
-			found = true
-			// Refresh Policy with latest copy from the VSD (refresh latest ID)
-			p.ID = livep.ID
-			p.Parent = livep.Parent
-			break
+	} else {
+		for _, policy := range pl { // Short list -- At most one policy with same Name per Type
+			if policy.Name == p.Name { // Check if Policy Names  match
+				// Refresh Policy with latest copy from the VSD (refresh latest ID)
+				*p = *policy
+				return nil // Policy found, no errors.
+			}
 		}
 	}
 
-	if !found {
-		return bambou.NewBambouError(ErrorPolicyNotFound+p.Name, "No live Policy with this Name and Type could be found in Policy Domain")
-	} else {
-		return nil // Policy found, no errors.
-	}
+	return bambou.NewBambouError(ErrorPolicyNotFound+p.Name, "No live Policy with this Name and Type could be found in Policy Domain")
 }
 
 // Deletes a Policy from a Policy Domain (i.e. un-apply). All in one go, no need to do it in a batch and/or delete individual ACLEntries (VSD takes care of that)

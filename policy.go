@@ -4,27 +4,28 @@ import (
 	"errors"
 	"io/ioutil"
 
+	"github.com/golang/glog"
 	"github.com/nuagenetworks/go-bambou/bambou"
 	"github.com/nuagenetworks/vspk-go/vspk"
-	"github.com/golang/glog"
 
 	yaml "gopkg.in/yaml.v2"
 )
 
 // Create a new Network Policy  with given arguments
 // Only non-VSD dependent fields needed at this point
-func NewPolicy(name string, ptype PolicyType, enterprise string, domain string, priority int) (Policy, error) {
-	p := Policy{
-		Kind:       NuageACLPolicy,
-		Version:    CurrentVersion,
-		Name:       name,
-		Type:       ptype,
-		Enterprise: enterprise,
-		Domain:     domain,
-		Priority:   priority,
-	}
+func NewPolicy(name string, ptype PolicyType, enterprise string, domain string, priority int) (*Policy, error) {
+	p := new(Policy)
+
+	p.Kind = NuageACLPolicy
+	p.Version = CurrentVersion
+	p.Name = name
+	p.Type = ptype
+	p.Enterprise = enterprise
+	p.Domain = domain
+	p.Priority = priority
+
 	// Sanity check the arguments
-	err := scrubPolicy(&p)
+	err := scrubPolicy(p)
 	return p, err
 }
 
@@ -61,13 +62,82 @@ func (p Policy) String() string {
 	return string(pyaml)
 }
 
+// Attach a PE (Policy Element) to a Policy (not yet applied)
+func (p *Policy) AttachPE(pe *PolicyElement) error {
+	if pe.Parent == p { // PE Already attached to Policy. Idempotent operation
+		return nil
+	}
+
+	if pe.Name == "" {
+		return bambou.NewBambouError(ErrorPEInvalid+pe.Name, "The Policy Element lacks a valid Name")
+	}
+
+	// Check that new PE doesn't have same Name or Priority as another PE already atached to the Policy
+	for _, prevpe := range p.PolicyElements {
+		if pe.Priority == prevpe.Priority {
+			return bambou.NewBambouError(ErrorPEInvalid+pe.Name, "Parent Policy already has a Policy Element with same Priority")
+		}
+
+		if pe.Name == prevpe.Name {
+			return bambou.NewBambouError(ErrorPEInvalid+pe.Name, "Parent Policy already has a Policy Element with same Name")
+		}
+	}
+
+	// Save old PE values
+	oldpe := *pe
+
+	// Minimal reqrs. to scrub the PE
+	pe.Parent = p
+	pe.Enterprise = p.Enterprise
+	pe.Domain = p.Domain
+
+	if err := scrubPE(pe); err != nil {
+		*pe = oldpe // restore it back
+		return err
+	}
+
+	// Add the PE to parent Policy PolicyElements
+	p.PolicyElements = append(p.PolicyElements, *pe)
+	return nil
+}
+
+//Check by PE fields: "Name" and "Parent".
+// Sliently ignore if no deletion was done
+// XXX -- This invalidates the PE (i.e. subsequent scrubPE() will fail)
+func (p *Policy) DetachPE(pe *PolicyElement) {
+	var spes []PolicyElement
+	// found := false
+	for _, prevpe := range p.PolicyElements {
+		if pe.Name == prevpe.Name && pe.Parent == prevpe.Parent {
+			// found = true
+			// Invalidate any ID it may have and detach from Policy
+			pe.ID = ""
+			pe.Parent = nil
+			continue
+		}
+		spes = append(spes, prevpe)
+	}
+
+	p.PolicyElements = spes
+
+	// In case we don't want to be silent about failing to detach
+	/*
+		if found {
+			return nil
+		} else {
+			return bambou.NewBambouError(ErrorPENotFound+pe.Name, "")
+		}
+	*/
+
+}
+
 //
 // Apply a single PE to a single Policy.
-// The must be already applied to a PolicyDomain ("policyState" is "LIVE")
+// The policy must be already applied to a PolicyDomain ("policyState" is "LIVE")
 // Very similar to ApplyPolicy()
 func (p *Policy) ApplyPE(pe *PolicyElement) error {
-	// Try to attach PE to Policy. Scrubs PE in the process
-	if err := p.attachPE(pe); err != nil {
+	// Make sure PE is attached to Policy. Scrubs the PE in the process
+	if err := p.AttachPE(pe); err != nil {
 		return err
 	}
 
@@ -165,7 +235,7 @@ func (p *Policy) ApplyPE(pe *PolicyElement) error {
 	return nil
 
 batch_error: //Errors encountered during batch processing. Discard any draft changes by sending a job with command "DISCARD_POLICY_CHANGES"
-	p.detachPE(pe)
+	p.DetachPE(pe)
 	if joberr := pd.Job("DISCARD_POLICY_CHANGES"); joberr != nil {
 		return bambou.NewBambouError(ErrorPECannotApply+pe.Name, batcherr.Error()+joberr.Error())
 	}
@@ -260,7 +330,7 @@ func (p *Policy) DeletePE(pe *PolicyElement) error {
 			return bambou.NewBambouError(ErrorPECannotDelete+pe.Name, err.Error())
 		} else {
 			// Detach the PE from the Policy
-			p.detachPE(pe)
+			p.DetachPE(pe)
 			return nil
 		}
 
@@ -274,7 +344,7 @@ func (p *Policy) DeletePE(pe *PolicyElement) error {
 			return bambou.NewBambouError(ErrorPECannotDelete+pe.Name, err.Error())
 		} else {
 			// Detach the PE from the Policy
-			p.detachPE(pe)
+			p.DetachPE(pe)
 			return nil
 		}
 
